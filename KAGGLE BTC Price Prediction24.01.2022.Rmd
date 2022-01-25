@@ -1,0 +1,524 @@
+---
+title: "BTC PRICE PREDICTION"
+author: "Sachin Sharma"
+date: "12/31/2021"
+output: html_document
+---
+## I have preapred this model in R using Random Forest & XGBoost. So, it is for those who are learning R or want to improve their machine learning skills...
+
+## I have break this data in smaller data, as I was facing challenge to run huge data on my PC, so that processing notebook will not take too much of time, if you want to apply the code on the entire data it will give you better results, I have tested this model on many small data, I am sharing it with you. You can also do some manipulation in the selected hyperparameters to check how model is performing.
+
+## I have used only Bitcoin as asset Id for my model preparation , you can use the same on entire data if you have more powerful machines. 
+
+### Note : # If you are having computer with 8 GB RAM with i5 processor or below, better to use CAT Boost rather using models Random Forest or XGBoost, it will not run on your machine or take too long to process the code. In CAT Boost it will take less time but give 1-2% less accuracy then XG Boost.
+
+## If you like the code , then give a upvote.. will boost me.. thanks a lot...
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(tm)
+library(naniar)
+#install.packages("gsubfn")
+library(readr)
+library(data.table)
+library(corrplot)
+library(tidyverse)
+library(tidyr)
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(knitr)
+library(timeSeries)
+library(tseries)
+library(xts)
+library(zoo)
+library(quantmod)
+library(PerformanceAnalytics)
+library(forecast)
+library(rugarch)
+library(caret)
+library(lightgbm)
+library(xgboost)
+library(Matrix)
+
+
+
+# You can download the data from Kaggle : https://www.kaggle.com/c/g-research-crypto-forecasting/data
+gc()
+```
+
+# Details about the data : 
+
+## train.csv - The training set
+## timestamp - A timestamp for the minute covered by the row.
+## Asset_ID - An ID code for the cryptoasset.
+## Count - The number of trades that took place this minute.
+## Open - The USD price at the beginning of the minute.
+## High - The highest USD price during the minute.
+## Low - The lowest USD price during the minute.
+## Close - The USD price at the end of the minute.
+## Volume - The number of cryptoasset units traded during the minute.
+## VWAP - The volume weighted average price for the minute.
+## Target - 15 minute residualized returns. See the 'Prediction and Evaluation' section of this notebook for details of how the target is calculated.
+
+
+```{r}
+
+#system.time(kaggle <- fread("train.csv",showProgress = FALSE))
+
+#head(kaggle)
+
+
+
+```
+# Lets check the asset details : 
+
+
+
+```{r}
+
+
+asset_details <- read.csv("asset_details (2).csv")
+asset_details
+
+```
+
+
+```{r}
+#nrow(kaggle)
+```
+
+
+# Due to heavy data set, we will divide this data into four equal parts, so that we will use this in future model preparation as well and it will save our processing time : 
+
+# 1- 6059202
+#6059203-12118405
+#12118406-18177608
+#18177608-24236806
+
+```{r}
+# 
+# train1<- kaggle[1:10000000,]
+#   
+# train2 <-kaggle[6059203:12118405,] 
+#   
+# train3 <- kaggle[12118406:18177608,]
+#   
+# train4 <- kaggle[18177609:24236806,]
+  
+
+# 24236806/4
+# 12118405+6059202
+# 
+# head(train2)
+# nrow(train1)
+```
+
+
+```{r}
+# head(train1)
+```
+
+```{r}
+# str(train1)
+# 
+# unique(train1$Asset_ID)
+```
+
+# Converting the time stamp to standard form : 
+
+
+```{r}
+# library(dplyr)
+# 
+# kaggle$timestamp <-as.POSIXct(kaggle$timestamp,origin= "1970-01-01",tz ="GMT")
+# 
+# 
+# 
+# btc_master <-  kaggle[kaggle$Asset_ID == "1",]
+# 
+# head(btc_master)
+```
+
+```{r}
+#nrow(btc_master)
+```
+
+```{r}
+# sum(is.na(btc_master))
+```
+
+```{r}
+#btc_master <- na.omit(btc_master)
+
+#write.csv(btc_master, "btc_master.csv")
+
+btc_master <- fread("btc_master.csv")
+head(btc_master)
+```
+# Lets drop the first column in the data : 
+
+```{r}
+btc_master <- btc_master[, 2:11]
+head(btc_master)
+```
+
+
+# Lets break the training data into 10 parts to remove the model run error :
+
+```{r}
+# 
+# btc1<- btc_master[1:50000,]
+# btc2<- btc_master[50001:125000,]
+# btc3<- btc_master[125001:200000,]
+# btc4<- btc_master[200001:300000,]
+# btc5<- btc_master[300001:450000,]
+# btc6<- btc_master[450001:600000,]
+# btc7<- btc_master[600001:750000,]
+# btc8<- btc_master[750001:950000,]
+# btc9<- btc_master[950001:1173586,]
+
+```
+
+```{r}
+#install.packages("hrbrthemes")
+
+library(hrbrthemes)
+library(ggthemes)
+
+plot <- btc_master %>% 
+  ggplot( aes(x=timestamp, y=High)) +
+    geom_line(color="#69b3a2") + ylim(0,22000) + geom_hline(yintercept=5000, color="orange", size=.5) +labs(x = "Year 2018", y= "High Price Achieved",  title = "Bitcoin Price Trend Since 2018 ",subtitle = "By: Sachin Sharma")+theme_ipsum()
+
+plot
+```
+
+
+# Create Features for Train Dataset
+# Upper Shadow : The length of the 'Head' is the difference between the highest price during the interval and the greater of the Open or Close price. 
+
+```{r}
+btc_master$UpperShadow <- btc_master$High / max(btc_master$Close, btc_master$Open)
+
+```
+
+
+# Lower Shadow : The length of the 'Tail' is the difference between the lowest price and the difference between lesser of the Open or Close price. The length of the 'Body' if the difference between the Open and Close price. The full length of the candle is referred to as the 'Shadow'.
+
+```{r}
+
+btc_master$Lower_Shadow <- min(btc_master$Close, btc_master$Open) / btc_master$Low
+
+
+
+```
+
+
+```{r}
+btc_master$Close / btc_master$Open
+btc_master$open2close <- btc_master$Open / btc_master$Close
+```
+
+```{r}
+btc_master$high2low <- btc_master$High / btc_master$Low
+df_subset <- data.frame(Open=btc_master$Open, High=btc_master$High, Low=btc_master$Low, Close=btc_master$Close)
+
+```
+
+
+```{r}
+mean_price <- apply(df_subset, 1, mean)
+```
+
+
+```{r}
+median_price <- apply(df_subset, 1, median)
+
+gc()
+```
+
+
+```{r}
+
+btc_master$high2mean <- btc_master$High / mean_price
+
+btc_master$low2mean <- btc_master$Low / mean_price
+
+btc_master$high2median <- btc_master$High / median_price
+
+btc_master$low2median <- btc_master$Low / median_price
+
+btc_master$volume2count  <- btc_master$Volume / btc_master$Count
+
+
+gc()
+```
+
+
+# Correlation Testing & Feature Selection 
+```{r}
+
+cor_btc1 <- btc_master[,4:19]
+cor_btc1 <- cor(cor_btc1)
+corrplot(cor_btc1)
+
+
+```
+
+
+
+# Splitting data into training set and test set : 
+
+
+```{r}
+library(caTools)
+
+split <- sample.split(btc_master$Target, SplitRatio = 0.7)
+training_btc_master <- subset(btc_master,split == TRUE)
+test_btc_master <- subset(btc_master,split == FALSE)
+
+#training_master1 <- training_master1[,4:20]
+
+
+training_btc_master <-  training_btc_master %>% relocate(Target, .after =volume2count )
+
+```
+
+
+```{r}
+nrow(training_btc_master)
+```
+
+# You can break this data into smaller parts, if you dont have powerful machines : 
+```{r}
+# df_btc_master1 <- training_btc_master[1:15000,]
+# df_btc_master2 <- training_btc_master[15000:60000,]
+# df_btc_master3 <- training_btc_master[500000:650000,]
+```
+
+
+
+```{r}
+nrow(test_btc_master)
+
+```
+
+
+```{r}
+
+lm_training_btc1 <- lm(Target~Open+Low+Close+Volume+VWAP+Lower_Shadow+high2low+low2mean+high2median+low2median+volume2count, data = training_btc_master )
+summary(lm_training_btc1)
+
+# pred_btc <- predict(lm_btc, newdata = test_set)
+# 
+# test_set <- test_btc[,4:20]
+
+#y_pred = predict(regressor, newdata = test_set)
+
+
+
+
+```
+
+# RANDOM FOREST : 
+## Random Forest developed by aggregating trees
+## Can be used for classification or regression
+## Avoids overfitting 
+## Can deal with large number of features 
+## Helps with feature selection based on importance 
+## User friendly  : only 2 free parameters 
+### Trees : default 500 ( can be adjusted) , for huge data should be reduced depends on PC configuration
+### Variables randomly sampled as candidates at each split - mtry default is sq.root(p) for classification & p/3 for regression
+
+# STEPS : 
+## Draw ntree bootstrap samples 
+
+## For each bootstrap sample, grow un-pruned tree by choosing best split based on a random sample of mtry predictors at each node. 
+## Predict new data using majority votes for classification and average for regression based on ntree trees.
+
+## You please run the following Random Forest model , at your machine, as it always consumes a lot of time of mine, so I don't run it on my machine...
+
+## Next model is XG Boost , please see the code below
+
+```{r}
+# library(randomForest)
+# 
+# #MODEL 1 
+# 
+# rf_btc_master1 <- randomForest(Target ~ ., data = df_btc_master1,
+#     num.trees = 600,
+#     max.depth = 5 )
+# 
+# varImpPlot(rf_btc_master1)
+
+
+#pred1_rf_training_master1 <- predict(rf_training_master1,training_master1)
+
+
+
+
+```
+
+# MODEL 2 
+```{r}
+# 
+# rf2_btc_master1 <- randomForest(Target~Open+Low+Close+Volume+VWAP+Lower_Shadow+high2low+low2mean+high2median+low2median+volume2count, data = df_btc_master1,num.trees = 600,
+#                                  max.depth = 4)
+
+
+```
+
+
+#MODEL 3 
+
+
+```{r}
+
+
+#MODEL 3 
+# 
+# rf_btc_master2 <- randomForest(Target ~ ., data = df_btc_master2,
+#     num.trees = 600,
+#     max.depth = 5 )
+# 
+# varImpPlot(rf_btc_master1)
+# 
+
+```
+
+# CHECKING MODEL ACCURACY 
+
+
+```{r}
+# library(modelr)
+# 
+# M1 <-  data.frame(
+#   R2 = rsquare(rf2_btc_master1, data = df_btc_master1),
+#   RMSE = rmse(rf2_btc_master1, data = df_btc_master1),
+#   MAE = mae(rf2_btc_master1, data = df_btc_master1)
+# )
+
+```
+
+
+
+
+```{r}
+# 
+# M2 <- 
+# data.frame(
+#   R2 = rsquare(rf3_btc_master2, data = test_btc_master),
+#   RMSE = rmse(rf3_btc_master2, data = test_btc_master),
+#   MAE = mae(rf3_btc_master2, data = test_btc_master)
+# )
+
+```
+
+
+
+# BY USING CARET 
+
+```{r}
+# 
+# library(caret)
+# predictions <- rf3_btc_master2 %>% predict(test_btc_master)
+# data.frame(
+#   R2 = R2(predictions, test_btc_master$Target),
+#   RMSE = RMSE(predictions, test_btc_master$Target),
+#   MAE = MAE(predictions, test_btc_master$Target)
+# )
+
+```
+
+
+# You can try feature scaling , if required and check the result of your model : 
+
+
+```{r}
+
+# df_btc_master3 <- scale(df_btc_master3[,4:19])
+
+```
+
+
+
+# XGBOOST 
+
+
+```{r}
+
+set.seed(1234)
+
+cvcontrol <- trainControl(method = "repeatedcv",
+                          number = 5,
+                          repeats = 2,
+                          allowParallel = TRUE)
+
+```
+
+
+# In this code, you can make changes in the hyper parameters like : nrounds, max_depth,eta,gamma and try to build different models by chaning these valus.
+
+# You will see improvement in your results .
+
+
+```{r}
+# set.seed(1234)
+# 
+# boosting1<- train(Target~.,
+#                   data = training_btc_master,
+#                   method = "xgbTree",
+#                   trControl = cvcontrol,
+#                   tuneGrid = expand.grid(nrounds = 500,
+#                                          max_depth = 3,
+#                                          eta = 0.2,
+#                                          gamma = 2.1,
+#                                          colsample_bytree =1,
+#                                          min_child_weight = 1,
+#                                          subsample = 1))
+
+
+```
+
+
+```{r}
+# 
+# boosting2<- train(Target ~ Open + Low + Close + Volume +VWAP +high2low + low2mean + high2median +      low2median + volume2count, data = df_btc_master3,
+#                   method = "xgbTree",
+#                   trControl = cvcontrol,
+#                   tuneGrid = expand.grid(nrounds = 500,
+#                                          max_depth = 3,
+#                                          eta = 0.2,
+#                                          gamma = 2.1,
+#                                          colsample_bytree =1,
+#                                          min_child_weight = 1,
+#                                          subsample = 1))
+# 
+
+# 
+# test_btc_master <- test_btc_master[,4:19]
+# 
+# test_btc_master <-   test_btc_master %>% relocate(Target,.after = volume2count )
+# 
+# 
+# 
+# boosting2_prediction <- predict(boosting2,test_btc_master)
+# plot(boosting2~test_btc_master$Target, main = "Predicted vs Acutal MEDV -Test Data")
+# sqrt(mean(test_btc_master$Target - boosting2)^2)
+# cor(test_boston$medv, boosting)^2
+#  test_btc_master$Target
+
+
+```
+
+
+# The following code will give you important variables, which will help you to improve your model 
+```{r}
+# plot(varImp(boosting1))
+
+```
+
