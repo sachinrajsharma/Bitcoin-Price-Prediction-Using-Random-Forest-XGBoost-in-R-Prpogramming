@@ -9,3 +9,5 @@
 ### Note : # If you are having computer with 8 GB RAM with i5 processor or below, better to use CAT Boost rather using models Random Forest or XGBoost, it will not run on your machine or take too long to process the code. In CAT Boost it will take less time but give 1-2% less accuracy then XG Boost.
 
 ## If you like the code , then give a upvote.. will boost me.. thanks a lot...
+
+# You can download the data from Kaggle : https://www.kaggle.com/c/g-research-crypto-forecasting/data
